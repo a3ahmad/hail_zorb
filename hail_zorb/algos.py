@@ -31,14 +31,14 @@ def fit(model, x, y):
         # For each module to solve
         for module_to_train in solve_order:
             # ANIS TODO: Run backwards to the module in question
+                # ANIS TODO: Run from module_to_train to the prediction, and store the order recursively
+                # ANIS TODO: Run the list back module_to_train
 
             # ANIS TODO: Update its weights
 
             # Remove module as it is now solved
             solve_order.remove(module_to_train)
-            module_to_train.clear_inputs()
-
-            # ANIS TODO: Evaluate/flag eligible trainable modules
+            module_to_train.set_solved()
 
             # Re-running the prediction/inference serves three (oft-optional) goals,
             # meaning removing this could be an optimization.

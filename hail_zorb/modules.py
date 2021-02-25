@@ -33,12 +33,9 @@ class Module(object):
         self.sources = []
         self.destinations = {}
 
-        self.trainable_parents = [] # ANIS TODO: Store trainable modules that run first
-
         self.clear_inputs()
 
     def clear_inputs(self):
-        self.needs_inputs = False
         self.inputs = []
 
     def to(self, device):
@@ -64,6 +61,9 @@ class Module(object):
     def trainable(self):
         return False
 
+    def solved(self):
+        return False
+
     def add_source(self, input):
         self.sources.append(input)
 
@@ -80,9 +80,9 @@ class Module(object):
             if arg.source is None:
                 arg.add_destination((self, idx))
 
-            # Store these inputs if necessary (anticipate it being solved soon, with no parents changing)
-            if self.needs_inputs:
-                self.inputs.append(arg)
+                # Store this input if it has no "source" and the current node is trainable
+                if self.trainable():
+                    self.inputs.append(arg)
 
             # Add the layer source for this input
             self.add_source(arg.source)
@@ -100,7 +100,9 @@ class Module(object):
 
         # Set DAG information
         for idx, result in enumerate(results):
-            result.set_source((self, idx))
+            # We only give a tensor a source if it has an unsolved trainable node in its history
+            if self.trainable() and not self.solved():
+                result.set_source((self, idx))
 
 
 class Activation(Module):
@@ -258,6 +260,23 @@ class Split(Layer):
         return torch.cat(y, dim=self.dim)
 
 
+class Trainable(Layer):
+    def __init__(self, splits, dim=1):
+        super(Trainable, self).__init__()
+
+        self.solved = False
+
+    def trainable(self):
+        return True
+
+    def set_solved(self):
+        self.solved = True
+        self.clear_inputs()
+
+    def solved(self):
+        return self.solved
+
+
 class Linear(Layer):
     def __init__(self, in_features, out_features, bias=True):
         super(Linear, self).__init__()
@@ -270,9 +289,6 @@ class Linear(Layer):
 
     def reset_parameters(self) -> None:
         init.kaiming_uniform_(self.weights, a=math.sqrt(5))
-
-    def trainable(self):
-        return True
 
     def forward(self, x):
         if self.use_bias:
@@ -329,9 +345,6 @@ class Conv2d(Layer):
 
     def reset_parameters(self) -> None:
         init.kaiming_uniform_(self.weights, a=math.sqrt(5))
-
-    def trainable(self):
-        return True
 
     def forward(self, x):
         assert self.input_size is None, "Conv2d modules cannot currently be shared"
