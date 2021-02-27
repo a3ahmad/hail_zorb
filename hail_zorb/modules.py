@@ -33,10 +33,11 @@ class Module(object):
         self.sources = []
         self.destinations = {}
 
-        self.clear_inputs()
+        self.clear_cached_io()
 
-    def clear_inputs(self):
+    def clear_cached_io(self):
         self.inputs = []
+        self.outputs = []
 
     def to(self, device):
         # Set all tensors to be on the requested device
@@ -74,35 +75,56 @@ class Module(object):
         assert hasattr(self, 'forward') and ismethod(
             getattr(self, 'forward')), "Forward method not available"
 
+        need_dag = hasattr(self, 'backward') and ismethod(
+            getattr(self, 'backward'))
+
         # Set DAG information
-        for idx, arg in enumerate(args):
-            # Let this tensor know where it's being used, but only if it was an input (has no source module)
-            if arg.source is None:
-                arg.add_destination((self, idx))
+        if need_dag:
+            source_in_history = False
+            for idx, arg in enumerate(args):
+                # Let this tensor know where it's being used, but only if it was an input (has no source module)
+                if arg.source is None:
+                    arg.add_destination((self, idx))
 
-                # Store this input if it has no "source" and the current node is trainable
-                if self.trainable():
-                    self.inputs.append(arg)
+                    # Store this input if it has no "source" and the current node is trainable
+                    if self.trainable():
+                        self.inputs.append(arg)
+                else:
+                    source_in_history = True
 
-            # Add the layer source for this input
-            self.add_source(arg.source)
+                    # Add the layer source for this input
+                    self.add_source(arg.source)
 
-            # Fetch the latest source layer, and it know which layer it feeds this output to
-            source_layer, source_output_idx = self.sources[-1]
-            source_layer.add_destination(source_output_idx, (self, idx))
+                    # Fetch the latest source layer, and it know which layer it feeds this output to
+                    source_layer, source_output_idx = self.sources[-1]
+                    source_layer.add_destination(
+                        source_output_idx, (self, idx))
 
         # Run the forward pass
         results = self.forward(args)
 
         # If there's only a single output, make it a tuple of one
-        if not hasattr(results, '__iter__'):
-            results = (results,)
+        results_tuple = results if hasattr(results, '__iter__') else (results,)
 
-        # Set DAG information
-        for idx, result in enumerate(results):
-            # We only give a tensor a source if it has an unsolved trainable node in its history
-            if self.trainable() and not self.solved():
-                result.set_source((self, idx))
+        if need_dag:
+            # Set DAG information
+            for idx, result in enumerate(results_tuple):
+                # We only give a tensor a source if it has an unsolved trainable node in its history
+                if (self.trainable() and not self.solved()) or source_in_history:
+                    result.set_source((self, idx))
+
+        return results
+
+    def solve(self):
+        assert len(self.destinations) == len(
+            self.outputs), "Not all outputs are cached"
+
+        inputs = self.backward(self.outputs)
+        self.outputs = []
+
+        # Send the results back to their sources
+        for input, (source, idx) in zip(inputs, self.sources):
+            source.destinations[idx] = input
 
 
 class Activation(Module):
@@ -271,7 +293,7 @@ class Trainable(Layer):
 
     def set_solved(self):
         self.solved = True
-        self.clear_inputs()
+        self.clear_cached_io()
 
     def solved(self):
         return self.solved
