@@ -127,6 +127,20 @@ class Module(object):
             source.destinations[idx] = input
 
 
+class Sequential(Module):
+    def __init__(self, module_list):
+        super(Sequential, self).__init__()
+
+        self.module_list = module_list
+
+    def forward(self, input):
+        for module in self.module_list:
+            output = module(input)
+            input = output
+
+        return output
+
+
 class Activation(Module):
     def __init__(self):
         super(Activation, self).__init__()
@@ -191,9 +205,9 @@ class Softmax(Activation):
         return torch.log(z)
 
 
-class Relu(Activation):
+class ReLU(Activation):
     def __init__(self):
-        super(Relu, self).__init__()
+        super(ReLU, self).__init__()
 
     def forward(self, x):
         return torch.max(x, torch.zeros_like(x))
@@ -202,9 +216,9 @@ class Relu(Activation):
         y[y <= 0] = -torch.rand_like(y)
 
 
-class LeakyRelu(Activation):
+class LeakyReLU(Activation):
     def __init__(self, alpha=0.3):
-        super(Relu, self).__init__()
+        super(LeakyReLU, self).__init__()
 
         self.alpha = torch.tensor([alpha])
 
